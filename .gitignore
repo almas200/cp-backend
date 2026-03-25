@@ -1,0 +1,4 @@
+node_modules/
+.env
+test_output.txt
+test_out.txt
