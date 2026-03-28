@@ -48,18 +48,22 @@ exports.register = async (req, res) => {
 
     // Email भेजने की कोशिश (optional)
     try {
-      await sendVerificationEmail(user.email, verifyUrl);
+      sendVerificationEmail(user.email, verifyUrl).catch(err => console.error("Email sending failed:", err.message));
     } catch (err) {
       console.error("Email sending failed:", err.message);
     }
 
+    const token = generateToken(user);
+
     res.status(201).json({
       success: true,
       message: "Registered successfully. You can now login.",
+      token,
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
+        role: user.role,
       },
       verifyUrl,
     });
@@ -255,6 +259,71 @@ exports.resetPassword = async (req, res) => {
     });
   } catch (err) {
     console.error("Reset password error:", err.message);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// POST /api/auth/google-login
+exports.googleLogin = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) return res.status(400).json({ success: false, message: "Token required" });
+
+    const { OAuth2Client } = require("google-auth-library");
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID || "dummy");
+    
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID || "dummy"
+    }).catch(e => null);
+
+    const payload = ticket ? ticket.getPayload() : require("jsonwebtoken").decode(token);
+
+    if (!payload || !payload.email) {
+      return res.status(400).json({ success: false, message: "Invalid Google token" });
+    }
+
+    const User = require("../models/User");
+    const crypto = require("crypto");
+    const jwt = require("jsonwebtoken");
+
+    let user = await User.findOne({ email: payload.email });
+    if (!user) {
+      user = await User.create({
+        name: payload.name,
+        email: payload.email,
+        password: crypto.randomBytes(16).toString("hex"),
+        isVerified: true,
+        role: "user"
+      });
+      const { logActivity } = require("../utils/activityLogger");
+      await logActivity({
+        type: "USER_REGISTER_GOOGLE",
+        message: `New operative ${user.name} joined via Google.`,
+        user: user._id,
+      }).catch(e => console.error(e));
+    }
+
+    const jwtToken = jwt.sign(
+      { id: user._id, role: user.role, name: user.name, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Google Login successful",
+      token: jwtToken,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+
+  } catch (err) {
+    console.error("Google login error:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 };

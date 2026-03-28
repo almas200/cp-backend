@@ -4,7 +4,7 @@ const fs = require("fs");
 const mongoose = require("mongoose");
 const csv = require("csv-parser");
 const slugify = require("slugify");
-require("dotenv").config({ path: path.join(__dirname, "../.env") });
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 
 // ====== CONFIG ======
 const MONGO_URI = process.env.MONGO_URI;
@@ -14,10 +14,10 @@ if (!MONGO_URI) {
 }
 
 // Udemy CSV ka path (udemy_courses.csv ko cp-server/data me rakho)
-const CSV_PATH = path.join(__dirname, "../data/udemy_courses.csv");
+const CSV_PATH = path.join(__dirname, "./data/udemy_courses.csv");
 
 // ====== COURSE MODEL ======
-const Course = require("../models/Course");
+const Course = require("./models/Course");
 
 // ====== HELPERS ======
 function mapLevel(level) {
@@ -111,7 +111,15 @@ async function seed() {
     const toInsert = courses; // ya slice(0, 800) if chaahe
 
     console.log(`Inserting ${toInsert.length} courses into MongoDB...`);
-    await Course.insertMany(toInsert);
+    try {
+      await Course.insertMany(toInsert, { ordered: false });
+    } catch (err) {
+      if (err.code === 11000) {
+        console.log("Some duplicates were skipped.");
+      } else {
+        throw err;
+      }
+    }
     console.log("✅ Seed complete");
 
     await mongoose.disconnect();
